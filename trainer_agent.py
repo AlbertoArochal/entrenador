@@ -71,13 +71,13 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "register_progress",
-            "description": "Registra el progreso diario del usuario (peso, calorias, proteina, pasos, eliptica). Llama esta funcion automaticamente cuando el usuario mencione estos datos en lenguaje natural.",
+            "description": "Registra el progreso diario del usuario (peso, calorias, proteina, pasos, eliptica). Llama esta funcion automaticamente cuando el usuario mencione estos datos en lenguaje natural. PASA EL TEXTO TAL CUAL del usuario, el parser extrae los valores solo.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "datos": {
                         "type": "string",
-                        "description": "Datos de progreso separados por espacios (ej: 'peso=78.5 calorias=1850 proteina=160 pasos=11000 eliptica_min=35')"
+                        "description": "Texto exacto del usuario con los datos de progreso (ej: '75kg 1800 calorias 160 proteina' o 'peso 75.2 1850 calorias')"
                     }
                 },
                 "required": ["datos"]
@@ -133,9 +133,33 @@ def ejecutar_tool(name, args):
         datos = args.get("datos", "")
         if not datos:
             return "No hay datos para registrar"
+        import re as _re
+        parsed = []
+        texto = datos
+        m_peso = _re.search(r'(\d+[.,]?\d*)\s*(?:kg)?\s*(?=calor|prot|pasos|elipt|$)', texto)
+        if m_peso:
+            parsed.append(f"peso={m_peso.group(1).replace(',', '.')}")
+        m_cal = _re.search(r'(\d+)\s*(?:kcal|calorias|calorías)', texto)
+        if m_cal:
+            parsed.append(f"calorias={m_cal.group(1)}")
+        m_prot = _re.search(r'(\d+)\s*g\s*(?:prote|proteína)', texto)
+        if not m_prot:
+            m_prot = _re.search(r'(?:prote|proteína)\s*(\d+)\s*g', texto)
+        if m_prot:
+            parsed.append(f"proteina={m_prot.group(1)}")
+        m_pasos = _re.search(r'(\d+[.,]?\d*)\s*(?:pasos|paso)', texto)
+        if m_pasos:
+            parsed.append(f"pasos={m_pasos.group(1).replace(',', '')}")
+        m_elip = _re.search(r'(\d+)\s*(?:min|minutos)\s*(?:elipt|elípt|cardio)', texto)
+        if not m_elip:
+            m_elip = _re.search(r'(?:elipt|elípt|cardio)\s*(\d+)\s*(?:min|minutos)', texto)
+        if m_elip:
+            parsed.append(f"eliptica_min={m_elip.group(1)}")
+        if not parsed:
+            parsed = datos.split()
         import subprocess
         script = os.path.join(os.path.dirname(__file__), "progress_tracker.py")
-        cmd = [sys.executable, script, "--log"] + datos.split()
+        cmd = [sys.executable, script, "--log"] + parsed
         result = subprocess.run(cmd, capture_output=True, text=True)
         output = result.stdout.strip() or result.stderr.strip()
         return output if output else "Progreso registrado correctamente"
