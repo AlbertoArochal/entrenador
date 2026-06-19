@@ -64,11 +64,11 @@ def procesar(args):
     cambios = []
     raw = " ".join(args)
     import re
-    pares_encontrados = re.findall(r'([a-zA-ZÀ-ÿ_]+)\s*[=:]\s*([^,;]+)', raw)
+    pares_encontrados = re.findall(r'([a-zA-ZÀ-ÿ_]+)\s*[=:]\s*(\S+)', raw)
 
     for clave, valor in pares_encontrados:
         clave = clave.strip().lower().replace(" ", "_")
-        valor = valor.strip().rstrip(",").rstrip(";").strip()
+        valor = valor.strip().rstrip(",;").strip()
 
         if clave in ("peso",):
             try:
