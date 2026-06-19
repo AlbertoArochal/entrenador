@@ -136,23 +136,31 @@ def ejecutar_tool(name, args):
         import re as _re
         parsed = []
         texto = datos
-        m_peso = _re.search(r'(\d+[.,]?\d*)\s*(?:kg)?\s*(?=calor|prot|pasos|elipt|$)', texto)
+        m_peso = _re.search(r'(\d+[.,]?\d*)\s*kg', texto)
+        if not m_peso:
+            m_peso = _re.search(r'(?:peso|pesé|pese)\s*[:=]?\s*(\d+[.,]?\d*)', texto)
         if m_peso:
             parsed.append(f"peso={m_peso.group(1).replace(',', '.')}")
         m_cal = _re.search(r'(\d+)\s*(?:kcal|calorias|calorías)', texto)
+        if not m_cal:
+            m_cal = _re.search(r'(?:calorias|calorías|cal)\s*[:=]?\s*(\d+)', texto)
         if m_cal:
             parsed.append(f"calorias={m_cal.group(1)}")
         m_prot = _re.search(r'(\d+)\s*g\s*(?:prote|proteína)', texto)
         if not m_prot:
-            m_prot = _re.search(r'(?:prote|proteína)\s*(\d+)\s*g', texto)
+            m_prot = _re.search(r'(?:proteínas?|proteinas?)\s*[:=]?\s*(\d+)\s*g', texto)
+        if not m_prot:
+            m_prot = _re.search(r'(?:proteínas?|proteinas?)\s*[:=]?\s*(\d+)', texto)
         if m_prot:
             parsed.append(f"proteina={m_prot.group(1)}")
-        m_pasos = _re.search(r'(\d+[.,]?\d*)\s*(?:pasos|paso)', texto)
+        m_pasos = _re.search(r'(\d+)\s*pasos', texto)
+        if not m_pasos:
+            m_pasos = _re.search(r'pasos?\s*[:=]?\s*(\d+)', texto)
         if m_pasos:
-            parsed.append(f"pasos={m_pasos.group(1).replace(',', '')}")
-        m_elip = _re.search(r'(\d+)\s*(?:min|minutos)\s*(?:elipt|elípt|cardio)', texto)
+            parsed.append(f"pasos={m_pasos.group(1)}")
+        m_elip = _re.search(r'eliptica?\s*[:=]?\s*(\d+)', texto)
         if not m_elip:
-            m_elip = _re.search(r'(?:elipt|elípt|cardio)\s*(\d+)\s*(?:min|minutos)', texto)
+            m_elip = _re.search(r'(\d+)\s*min\s*(?:elipt|elípt|cardio)', texto)
         if m_elip:
             parsed.append(f"eliptica_min={m_elip.group(1)}")
         if not parsed:
