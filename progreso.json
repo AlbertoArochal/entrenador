@@ -1,0 +1,19 @@
+{
+  "cliente": {
+    "edad": 42,
+    "altura": 172,
+    "peso_inicial": 79,
+    "grasa_inicial": "20-22%",
+    "peso_objetivo": 71
+  },
+  "progreso": {
+    "2026-06-20": {
+      "notas": "buen dia",
+      "peso": 78.5,
+      "calorias": 1850,
+      "proteina": 162,
+      "pasos": 11500,
+      "eliptica_min": 35
+    }
+  }
+}
