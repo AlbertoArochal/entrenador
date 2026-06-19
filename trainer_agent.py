@@ -28,6 +28,7 @@ REGLAS:
 - Cuando necesites informacion especifica sobre tecnica de ejercicios, usa la herramienta query_fitness_knowledge.
 - Cuando te pregunten sobre informacion nutricional de alimentos, usa la herramienta get_nutrition_data.
 - Cuando el usuario mencione su peso, calorias, proteinas, pasos o eliptica, USA LA HERRAMIENTA register_progress.
+- Cuando el usuario pregunte por su progreso historico, ultimo peso, resumen o estadisticas, USA LA HERRAMIENTA query_progress.
 - Responde en español de forma clara y motivacional.
 - Usa el conocimiento de las herramientas para dar respuestas precisas."""
 
@@ -82,6 +83,28 @@ TOOLS = [
                 "required": ["datos"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "query_progress",
+            "description": "Consulta el historial de progreso del usuario: ultimo peso, resumen del plan, ultimos N dias. Usa esta funcion cuando el usuario pregunte por su peso registrado, evolucion, o estadisticas.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "tipo": {
+                        "type": "string",
+                        "enum": ["ultimo", "resumen", "ultimos"],
+                        "description": "Tipo de consulta: 'ultimo' para ultimo registro, 'resumen' para vision general, 'ultimos' para ultimos N dias"
+                    },
+                    "dias": {
+                        "type": "integer",
+                        "description": "Numero de dias a mostrar (solo si tipo='ultimos')"
+                    }
+                },
+                "required": ["tipo"]
+            }
+        }
     }
 ]
 
@@ -116,6 +139,20 @@ def ejecutar_tool(name, args):
         result = subprocess.run(cmd, capture_output=True, text=True)
         output = result.stdout.strip() or result.stderr.strip()
         return output if output else "Progreso registrado correctamente"
+
+    elif name == "query_progress":
+        tipo = args.get("tipo", "ultimo")
+        import subprocess
+        script = os.path.join(os.path.dirname(__file__), "progress_tracker.py")
+        if tipo == "resumen":
+            cmd = [sys.executable, script, "--resumen"]
+        elif tipo == "ultimos":
+            dias = args.get("dias", 7)
+            cmd = [sys.executable, script, "--ultimos", str(dias)]
+        else:
+            cmd = [sys.executable, script, "--ultimos", "1"]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        return result.stdout.strip() or result.stderr.strip()
 
     return f"Error: herramienta desconocida '{name}'"
 
