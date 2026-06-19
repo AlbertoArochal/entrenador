@@ -62,22 +62,13 @@ def procesar(args):
     entrada = data["progreso"].get(hoy, {"notas": ""})
 
     cambios = []
-    pares = " ".join(args).split(",")
+    raw = " ".join(args)
+    import re
+    pares_encontrados = re.findall(r'([a-zA-ZÀ-ÿ_]+)\s*[=:]\s*([^,;]+)', raw)
 
-    for par in pares:
-        par = par.strip()
-        if not par:
-            continue
-        if ":" in par:
-            clave, _, valor = par.partition(":")
-            clave = clave.strip().lower().replace(" ", "_")
-            valor = valor.strip()
-        elif "=" in par:
-            clave, _, valor = par.partition("=")
-            clave = clave.strip().lower().replace(" ", "_")
-            valor = valor.strip()
-        else:
-            continue
+    for clave, valor in pares_encontrados:
+        clave = clave.strip().lower().replace(" ", "_")
+        valor = valor.strip().rstrip(",").rstrip(";").strip()
 
         if clave in ("peso",):
             try:
