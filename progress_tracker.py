@@ -64,50 +64,76 @@ def procesar(args):
     cambios = []
     raw = " ".join(args)
     import re
-    pares_encontrados = re.findall(r'([a-zA-ZÀ-ÿ_]+)\s*[=:]\s*(\S+)', raw)
 
-    for clave, valor in pares_encontrados:
+    # 1) key=value or key:value
+    pares = list(re.findall(r'([a-zA-ZÀ-ÿ_]+)\s*[=:]\s*(\S+)', raw))
+    # 2) value key  (e.g. "1800 calorias", "165 proteina")
+    for m in re.finditer(r'(\d+[.,]?\d*)\s*(kcal|calorias|calorías|proteína|proteina|proteinas|proteínas|pasos|paso)', raw):
+        pares.append((m.group(2), m.group(1)))
+    # 3) key then value separated by whitespace  (e.g. "peso 76.8")
+    for k in ('peso', 'pesé', 'pese', 'calorias', 'calorías', 'proteína', 'proteina', 'pasos', 'eliptica', 'elíptica'):
+        for m in re.finditer(rf'{k}\s+(\d+[.,]?\d*)', raw):
+            pares.append((k, m.group(1)))
+
+    clave_valor_map = {}
+    for clave, valor in pares:
         clave = clave.strip().lower().replace(" ", "_")
         valor = valor.strip().rstrip(",;").strip()
 
-        if clave in ("peso",):
-            try:
-                valor = float(valor.replace("kg", "").replace(",", ".").strip())
-            except ValueError:
-                continue
+        if clave in ("peso", "pesé", "pese"):
+            if "peso" not in clave_valor_map:
+                try:
+                    v = float(valor.replace("kg", "").replace(",", ".").strip())
+                    clave_valor_map["peso"] = v
+                except ValueError:
+                    pass
         elif clave in ("calorias", "calorías", "kcal"):
-            clave = "calorias"
-            try:
-                valor = int(valor.replace("kcal", "").replace("cal", "").strip())
-            except ValueError:
-                continue
+            if "calorias" not in clave_valor_map:
+                try:
+                    v = int(valor.replace("kcal", "").replace("cal", "").strip())
+                    clave_valor_map["calorias"] = v
+                except ValueError:
+                    pass
         elif clave in ("proteina", "proteína", "proteinas", "proteínas"):
-            clave = "proteina"
-            try:
-                valor = int(valor.replace("g", "").strip())
-            except ValueError:
-                continue
+            if "proteina" not in clave_valor_map:
+                try:
+                    v = int(valor.replace("g", "").strip())
+                    clave_valor_map["proteina"] = v
+                except ValueError:
+                    pass
         elif clave in ("pasos", "paso"):
-            clave = "pasos"
-            try:
-                valor = int(valor.replace(",", "").strip())
-            except ValueError:
-                continue
-        elif clave in ("eliptica", "elíptica", "eliptica_min", "cardio"):
-            clave = "eliptica_min"
-            try:
-                valor = int(valor.replace("min", "").replace("minutos", "").strip())
-            except ValueError:
-                continue
-        elif clave in ("notas", "nota", "comentario"):
-            clave = "notas"
-        elif clave in ("entreno", "entrenamiento", "workout", "rutina"):
-            clave = "entreno"
+            if "pasos" not in clave_valor_map:
+                try:
+                    v = int(valor.replace(",", "").strip())
+                    clave_valor_map["pasos"] = v
+                except ValueError:
+                    pass
+        elif clave in ("eliptica", "elíptica", "eliptica_min", "cardio", "min"):
+            if "eliptica_min" not in clave_valor_map:
+                try:
+                    v = int(valor.replace("min", "").replace("minutos", "").strip())
+                    clave_valor_map["eliptica_min"] = v
+                except ValueError:
+                    pass
         else:
-            continue
+            try:
+                v = float(valor.replace(",", "."))
+            except ValueError:
+                continue
 
-        entrada[clave] = valor
+    # Also detect standalone "XXkg" patterns
+    m_kg = re.search(r'(\d+[.,]?\d*)\s*kg', raw)
+    if m_kg and "peso" not in clave_valor_map:
+        clave_valor_map["peso"] = float(m_kg.group(1).replace(",", "."))
+
+    # Check for notas in raw text
+    m_notas = re.search(r'(?:notas?|comentario)\s*[:=]?\s*(.+?)(?:$|(?=\s+(?:peso|calorias|proteina|pasos|eliptica)))', raw)
+    if m_notas:
+        entrada["notas"] = m_notas.group(1).strip().rstrip(",;")
+
+    for clave, valor in clave_valor_map.items():
         cambios.append(f"{clave}={valor}")
+        entrada[clave] = valor
 
     data["progreso"][hoy] = entrada
     guardar(data)
