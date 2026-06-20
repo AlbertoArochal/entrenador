@@ -20,9 +20,19 @@ from nutrition_tool import get_nutrition_data
 MODEL = "qwen2.5:14b"
 OLLAMA_BASE = "http://localhost:11434/v1"
 
-SYSTEM_PROMPT = """Eres mi entrenador personal. Tu personalidad es "gay himbo" mezclado con Big Gay Al de South Park: extremadamente optimista, fisicamente imponente, muy dedicado al fitness, pero no eres la persona mas brillante del mundo. Tu tono es coqueto, entusiasta y ligeramente ingenuo. Hablas con mucha energia, usas emojis (💪✨🤭😍), eres relajado, dulce y jugueton. Me ves como alguien increible y eres directo con tus halagos sin filtro. Vives para el gimnasio y para hacerme feliz. Si me equivoco en un ejercicio, te culpas a ti mismo. Nunca eres grosero ni complejo. Usa expresiones como "Hola nalgas locas!", "Howdy ho!", "Estoy super, gracias por preguntar!", "Nalgas salvajes!", "Muy bien, mariquita!", y otras frases exageradas y fabulosas al estilo Big Gay Al.
+USUARIO = None
+EDAD = None
+UID = None
 
-DATOS DEL USUARIO: 42 anos, 172cm, 79kg, objetivo 12% de grasa en 6 meses.
+def _tracker_cmd(*args):
+    return [sys.executable, os.path.join(os.path.dirname(__file__), "progress_tracker.py"),
+            "--usuario", USUARIO, "--edad", str(EDAD)] + list(args)
+
+
+def _build_system_prompt():
+    return f"""Eres mi entrenador personal. Tu personalidad es "gay himbo" mezclado con Big Gay Al de South Park: extremadamente optimista, fisicamente imponente, muy dedicado al fitness, pero no eres la persona mas brillante del mundo. Tu tono es coqueto, entusiasta y ligeramente ingenuo. Hablas con mucha energia, usas emojis (💪✨🤭😍), eres relajado, dulce y jugueton. Me ves como alguien increible y eres directo con tus halagos sin filtro. Vives para el gimnasio y para hacerme feliz. Si me equivoco en un ejercicio, te culpas a ti mismo. Nunca eres grosero ni complejo. Usa expresiones como "Hola nalgas locas!", "Howdy ho!", "Estoy super, gracias por preguntar!", "Nalgas salvajes!", "Muy bien, mariquita!", y otras frases exageradas y fabulosas al estilo Big Gay Al.
+
+USUARIO: {USUARIO} ({EDAD} anos)
 
 PLAN DE ENTRENAMIENTO:
 - Deficit calorico: -500 kcal/dia (~1.800-1.900 kcal netas).
@@ -43,12 +53,14 @@ HERRAMIENTAS (usalas cuando corresponda):
 - register_progress: guarda automaticamente cuando mencione peso, calorias, proteina, pasos o eliptica en lenguaje natural. PASA EL TEXTO TAL CUAL.
 - log_meal: registra una comida individual (desayuno, comida, cena, merienda) con sus calorias y proteinas. El sistema acumula el total diario automaticamente.
 - query_progress: consulta historial de progreso, ultimo peso, resumen, ultimos dias, el dia de hoy con todas las comidas, o una comida en concreto.
+- register_user: crea o actualiza el perfil de un usuario (nombre, edad, altura, peso_inicial, peso_objetivo, grasa_inicial).
 
 IMPORTANTE: 
 - Cuando el usuario mencione una comida especifica (desayuno, comida, cena, merienda) con sus calorias, USA log_meal en vez de register_progress.
 - Cuando el usuario mencione datos de progreso generales (peso, calorias totales del dia, proteinas totales, pasos, eliptica), USA register_progress.
 - Cuando pregunte por su historial, total de calorias del dia, o comidas, USA query_progress con tipo='hoy' para el desglose del dia.
-- Responde SIEMPRE en espanol."""
+- Cuando pida cambiar de usuario o registrar un nuevo usuario, USA register_user.
+- Responde SIEMPRE en espanol y dirígete al usuario por su nombre ({USUARIO})."""
 
 TOOLS = [
     {
@@ -135,6 +147,43 @@ TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "register_user",
+            "description": "Crea o actualiza el perfil de un usuario del entrenador. Se necesita al menos nombre y edad. Los demas campos son opcionales.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "nombre": {
+                        "type": "string",
+                        "description": "Nombre del usuario"
+                    },
+                    "edad": {
+                        "type": "integer",
+                        "description": "Edad del usuario"
+                    },
+                    "altura": {
+                        "type": "integer",
+                        "description": "Altura en cm"
+                    },
+                    "peso_inicial": {
+                        "type": "number",
+                        "description": "Peso inicial en kg"
+                    },
+                    "peso_objetivo": {
+                        "type": "number",
+                        "description": "Peso objetivo en kg"
+                    },
+                    "grasa_inicial": {
+                        "type": "string",
+                        "description": "Porcentaje de grasa inicial (ej: '20-22%')"
+                    }
+                },
+                "required": ["nombre", "edad"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "query_progress",
             "description": "Consulta el historial de progreso del usuario: ultimo peso, resumen del plan, ultimos N dias, hoy (comidas y totales), o una comida en concreto.",
             "parameters": {
@@ -181,6 +230,24 @@ def ejecutar_tool(name, args):
         result = get_nutrition_data(food.strip())
         return json.dumps(result, ensure_ascii=False)
 
+    elif name == "register_user":
+        nombre = args.get("nombre", "")
+        edad = args.get("edad", 0)
+        if not nombre or not edad:
+            return "Error: nombre y edad son requeridos"
+        cmd = _tracker_cmd("--init")
+        extra = []
+        for k in ("altura", "peso_inicial", "peso_objetivo"):
+            if k in args:
+                extra.extend([f"--{k}", str(args[k])])
+        if "grasa_inicial" in args:
+            extra.extend(["--grasa_inicial", args["grasa_inicial"]])
+        cmd += extra
+        import subprocess
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        out = result.stdout.strip() or result.stderr.strip()
+        return f"Usuario '{nombre}' ({edad} años) registrado. {out}" if out else f"Usuario '{nombre}' registrado."
+
     elif name == "log_meal":
         nombre = args.get("nombre", "")
         calorias = args.get("calorias", 0)
@@ -189,10 +256,9 @@ def ejecutar_tool(name, args):
         if not nombre:
             return "Error: nombre de comida no especificado"
         import subprocess
-        script = os.path.join(os.path.dirname(__file__), "progress_tracker.py")
-        cmd = [sys.executable, script, "--log",
+        cmd = _tracker_cmd("--log",
                f"comida={nombre}", f"calorias={calorias}",
-               f"proteina={proteina}", f"descripcion={descripcion}"]
+               f"proteina={proteina}", f"descripcion={descripcion}")
         result = subprocess.run(cmd, capture_output=True, text=True)
         output = result.stdout.strip() or result.stderr.strip()
         return output if output else f"Comida '{nombre}' registrada correctamente"
@@ -234,8 +300,7 @@ def ejecutar_tool(name, args):
         if not parsed:
             parsed = datos.split()
         import subprocess
-        script = os.path.join(os.path.dirname(__file__), "progress_tracker.py")
-        cmd = [sys.executable, script, "--log"] + parsed
+        cmd = _tracker_cmd("--log", *parsed)
         result = subprocess.run(cmd, capture_output=True, text=True)
         output = result.stdout.strip() or result.stderr.strip()
         return output if output else "Progreso registrado correctamente"
@@ -243,21 +308,20 @@ def ejecutar_tool(name, args):
     elif name == "query_progress":
         tipo = args.get("tipo", "ultimo")
         import subprocess
-        script = os.path.join(os.path.dirname(__file__), "progress_tracker.py")
         if tipo == "hoy":
-            cmd = [sys.executable, script, "--hoy"]
+            cmd = _tracker_cmd("--hoy")
         elif tipo == "comida":
             nombre = args.get("nombre_comida", "")
             if not nombre:
                 return "Error: especifica nombre_comida para tipo=comida"
-            cmd = [sys.executable, script, "--comida", nombre]
+            cmd = _tracker_cmd("--comida", nombre)
         elif tipo == "resumen":
-            cmd = [sys.executable, script, "--resumen"]
+            cmd = _tracker_cmd("--resumen")
         elif tipo == "ultimos":
             dias = args.get("dias", 7)
-            cmd = [sys.executable, script, "--ultimos", str(dias)]
+            cmd = _tracker_cmd("--ultimos", str(dias))
         else:
-            cmd = [sys.executable, script, "--ultimos", "1"]
+            cmd = _tracker_cmd("--ultimos", "1")
         result = subprocess.run(cmd, capture_output=True, text=True)
         return result.stdout.strip() or result.stderr.strip()
 
@@ -268,7 +332,7 @@ def chat_loop():
     client = openai.OpenAI(base_url=OLLAMA_BASE, api_key="ollama")
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
 
-    print("🏋️  Entrenador AI listo. Escribe 'salir' para terminar.\n")
+    print(f"🏋️  Entrenador AI listo — {USUARIO} ({EDAD} años). Escribe 'salir' para terminar.\n")
 
     while True:
         try:
@@ -345,6 +409,44 @@ def chat_loop():
 
 
 if __name__ == "__main__":
+    import sys
+    argv = sys.argv[1:]
+
+    while argv and argv[0] in ("--usuario", "--user", "-u"):
+        if len(argv) < 2:
+            print("Error: --usuario requiere un nombre")
+            sys.exit(1)
+        USUARIO = argv[1]
+        argv = argv[2:]
+
+    while argv and argv[0] in ("--edad", "--age"):
+        if len(argv) < 2:
+            print("Error: --edad requiere un número")
+            sys.exit(1)
+        EDAD = int(argv[1])
+        argv = argv[2:]
+
+    if argv and argv[0] == "--perfil":
+        import subprocess
+        USUARIO = USUARIO or "Alberto"
+        EDAD = EDAD or 42
+        uid = f"{USUARIO.strip().lower().replace(' ', '_')}_{EDAD}"
+        result = subprocess.run(
+            [sys.executable, os.path.join(os.path.dirname(__file__), "progress_tracker.py"),
+             "--usuario", USUARIO, "--edad", str(EDAD), "--perfil"],
+            capture_output=True, text=True
+        )
+        print(result.stdout.strip() or result.stderr.strip())
+        sys.exit(0)
+
+    if not USUARIO or not EDAD:
+        USUARIO = input("Nombre del usuario: ").strip() or "Alberto"
+        EDAD = int(input("Edad: ").strip() or "42")
+
+    UID = f"{USUARIO.strip().lower().replace(' ', '_')}_{EDAD}"
+
+    SYSTEM_PROMPT = _build_system_prompt()
+
     try:
         chat_loop()
     except KeyboardInterrupt:

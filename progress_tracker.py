@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
 Registro de progreso del entrenador personal.
-Guarda datos diarios en progreso.json y hace auto-commit+push a GitHub.
-Soporta comidas individuales con timestamp y totales diarios acumulados.
+Soporta multiples usuarios identificados por nombre y edad.
+Guarda datos en progreso.json y hace auto-commit+push a GitHub.
 """
 
 import json
@@ -13,23 +13,34 @@ from datetime import date, datetime
 
 REPO_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_FILE = os.path.join(REPO_DIR, "progreso.json")
-GIT_REMOTE = "https://github.com/AlbertoArochal/entrenador.git"
+
+
+def _user_id(nombre, edad):
+    return f"{nombre.strip().lower().replace(' ', '_')}_{edad}"
 
 
 def cargar():
-    if os.path.exists(DATA_FILE):
-        with open(DATA_FILE, "r") as f:
-            return json.load(f)
-    return {
-        "cliente": {
-            "edad": 42,
-            "altura": 172,
-            "peso_inicial": 79,
-            "grasa_inicial": "20-22%",
-            "peso_objetivo": 71,
-        },
-        "progreso": {},
-    }
+    if not os.path.exists(DATA_FILE):
+        return {"usuarios": {}}
+    with open(DATA_FILE, "r") as f:
+        data = json.load(f)
+    if "usuarios" not in data:
+        old_cliente = data.get("cliente", {})
+        old_progreso = data.get("progreso", {})
+        default_name = old_cliente.get("nombre", "Usuario")
+        default_edad = old_cliente.get("edad", 0)
+        uid = _user_id(default_name, default_edad)
+        data = {
+            "usuarios": {
+                uid: {
+                    "cliente": {**old_cliente, "nombre": default_name},
+                    "progreso": old_progreso,
+                }
+            }
+        }
+        guardar(data)
+        print(f"  ↪ Datos migrados a multi-usuario: {uid}")
+    return data
 
 
 def guardar(data):
@@ -57,6 +68,17 @@ def git_commit_push(mensaje):
         print(f"  ⚠ Error en git: {e}")
 
 
+def _obtener_o_crear_usuario(data, uid, nombre, edad):
+    if uid not in data["usuarios"]:
+        data["usuarios"][uid] = {
+            "cliente": {"nombre": nombre.strip().title(), "edad": edad},
+            "progreso": {},
+        }
+        guardar(data)
+        print(f"  ✓ Nuevo usuario creado: {nombre} ({edad} años)")
+    return data["usuarios"][uid]
+
+
 def _parse_kv(args):
     raw = " ".join(args)
     import re
@@ -69,10 +91,11 @@ def _parse_kv(args):
     return pares, raw
 
 
-def procesar(args):
+def procesar(args, uid, nombre, edad):
     data = cargar()
+    usuario = _obtener_o_crear_usuario(data, uid, nombre, edad)
     hoy = str(date.today())
-    entrada = data["progreso"].get(hoy, {"notas": ""})
+    entrada = usuario["progreso"].get(hoy, {"notas": ""})
     if "comidas" not in entrada:
         entrada["comidas"] = []
 
@@ -80,6 +103,7 @@ def procesar(args):
     pares, raw = _parse_kv(args)
     import re
 
+    cliente_map = {}
     clave_valor_map = {}
     for clave, valor in pares:
         clave = clave.strip().lower().replace(" ", "_")
@@ -124,6 +148,23 @@ def procesar(args):
             clave_valor_map["nombre_comida"] = valor.strip('"').strip("'")
         elif clave in ("descripcion", "alimentos", "desc"):
             clave_valor_map["descripcion"] = valor.strip('"').strip("'")
+        elif clave in ("altura", "talla"):
+            try:
+                cliente_map["altura"] = int(valor)
+            except ValueError:
+                pass
+        elif clave in ("peso_inicial", "peso_inicial_kg"):
+            try:
+                cliente_map["peso_inicial"] = float(valor.replace(",", "."))
+            except ValueError:
+                pass
+        elif clave in ("peso_objetivo", "objetivo"):
+            try:
+                cliente_map["peso_objetivo"] = float(valor.replace(",", "."))
+            except ValueError:
+                pass
+        elif clave in ("grasa_inicial", "grasa"):
+            cliente_map["grasa_inicial"] = valor
         else:
             try:
                 v = float(valor.replace(",", "."))
@@ -134,9 +175,13 @@ def procesar(args):
     if m_kg and "peso" not in clave_valor_map:
         clave_valor_map["peso"] = float(m_kg.group(1).replace(",", "."))
 
-    m_notas = re.search(r'(?:notas?|comentario)\s*[:=]?\s*(.+?)(?:$|(?=\s+(?:peso|calorias|proteina|pasos|eliptica|comida|nombre)))', raw)
+    m_notas = re.search(r'(?:notas?|comentario)\s*[:=]?\s*(.+?)(?:$|(?=\s+(?:peso|calorias|proteina|pasos|eliptica|comida|nombre|altura|peso_objetivo)))', raw)
     if m_notas:
         entrada["notas"] = m_notas.group(1).strip().rstrip(",;")
+
+    if cliente_map:
+        usuario["cliente"].update(cliente_map)
+        cambios.extend(f"perfil:{k}={v}" for k, v in cliente_map.items())
 
     nombre_comida = clave_valor_map.pop("nombre_comida", None)
     if nombre_comida:
@@ -144,7 +189,6 @@ def procesar(args):
         prot = int(clave_valor_map.pop("proteina", 0))
         desc = clave_valor_map.pop("descripcion", "")
         timestamp = datetime.now().strftime("%H:%M")
-
         meal_entry = {
             "timestamp": timestamp,
             "nombre": str(nombre_comida).strip().title(),
@@ -154,7 +198,6 @@ def procesar(args):
         }
         entrada["comidas"].append(meal_entry)
         cambios.append(f"comida={meal_entry['nombre']}({cal}kcal)")
-
         total_cal = sum(m.get("calorias", 0) for m in entrada["comidas"])
         total_prot = sum(m.get("proteina", 0) for m in entrada["comidas"])
         entrada["total_calorias"] = total_cal
@@ -164,28 +207,45 @@ def procesar(args):
         cambios.append(f"{clave}={valor}")
         entrada[clave] = valor
 
-    data["progreso"][hoy] = entrada
+    usuario["progreso"][hoy] = entrada
     guardar(data)
 
     campos = [k for k in ("peso", "calorias", "proteina", "pasos", "eliptica_min", "total_calorias") if k in entrada]
     if nombre_comida:
         campos.append("comida")
-    mensaje = f"progreso {hoy}: {' '.join(campos)}" if campos else f"notas {hoy}"
+    mensaje = f"[{nombre}] progreso {hoy}: {' '.join(campos)}" if campos else f"[{nombre}] notas {hoy}"
     git_commit_push(mensaje)
 
     if cambios:
-        print(f"  ✓ Registrado {hoy}: {', '.join(cambios)}")
+        print(f"  ✓ {nombre}: {', '.join(cambios)}")
     else:
-        print(f"  ✓ Día {hoy} actualizado")
+        print(f"  ✓ {nombre}: Día {hoy} actualizado")
 
 
-def mostrar_hoy():
+def init_usuario(uid, nombre, edad, **kwargs):
     data = cargar()
+    if uid in data["usuarios"]:
+        print(f"  ⚠ Usuario '{nombre}' ya existe. Actualizando perfil.")
+    data["usuarios"][uid] = {
+        "cliente": {"nombre": nombre.strip().title(), "edad": edad, **kwargs},
+        "progreso": data["usuarios"].get(uid, {}).get("progreso", {}),
+    }
+    guardar(data)
+    print(f"  ✓ Usuario '{nombre}' ({edad} años) inicializado.")
+    git_commit_push(f"[{nombre}] perfil creado")
+
+
+def mostrar_hoy(uid, nombre):
+    data = cargar()
+    if uid not in data["usuarios"]:
+        print(f"  Usuario '{nombre}' no encontrado.")
+        return
+    progreso = data["usuarios"][uid]["progreso"]
     hoy = str(date.today())
-    entrada = data["progreso"].get(hoy, {})
+    entrada = progreso.get(hoy, {})
     comidas = entrada.get("comidas", [])
 
-    print(f"\n📋 Hoy ({hoy}):")
+    print(f"\n📋 {nombre} - Hoy ({hoy}):")
     if not comidas and not any(k in entrada for k in ("peso", "total_calorias", "pasos")):
         print("  No hay datos registrados hoy.")
         return
@@ -203,11 +263,11 @@ def mostrar_hoy():
     if "peso" in entrada:
         daily_items.append(f"Peso: {entrada['peso']} kg")
     if "total_calorias" in entrada:
-        daily_items.append(f"Calorías totales: {entrada['total_calorias']} kcal")
+        daily_items.append(f"Calorías: {entrada['total_calorias']} kcal")
     elif "calorias" in entrada:
         daily_items.append(f"Calorías: {entrada['calorias']} kcal")
     if "total_proteina" in entrada:
-        daily_items.append(f"Proteína total: {entrada['total_proteina']} g")
+        daily_items.append(f"Proteína: {entrada['total_proteina']} g")
     elif "proteina" in entrada:
         daily_items.append(f"Proteína: {entrada['proteina']} g")
     if "pasos" in entrada:
@@ -218,15 +278,19 @@ def mostrar_hoy():
         print(f"\n  📊 Totales del día: {' | '.join(daily_items)}")
 
 
-def mostrar_comida(nombre):
+def mostrar_comida(nombre_comida, uid, nombre):
     data = cargar()
+    if uid not in data["usuarios"]:
+        print(f"  Usuario '{nombre}' no encontrado.")
+        return
+    progreso = data["usuarios"][uid]["progreso"]
     hoy = str(date.today())
-    entrada = data["progreso"].get(hoy, {})
+    entrada = progreso.get(hoy, {})
     comidas = entrada.get("comidas", [])
-    nombre_b = nombre.strip().lower()
+    target = nombre_comida.strip().lower()
 
     for c in comidas:
-        if c.get("nombre", "").strip().lower() == nombre_b:
+        if c.get("nombre", "").strip().lower() == target:
             print(f"\n  🍽️  {c['nombre']} ({c['timestamp']})")
             print(f"     Calorías: {c.get('calorias', 0)} kcal")
             print(f"     Proteína: {c.get('proteina', 0)} g")
@@ -236,16 +300,19 @@ def mostrar_comida(nombre):
 
     names = [c.get("nombre", "") for c in comidas]
     if names:
-        print(f"  Comida '{nombre}' no encontrada. Comidas de hoy: {', '.join(names)}")
+        print(f"  Comida '{nombre_comida}' no encontrada. Comidas de hoy: {', '.join(names)}")
     else:
         print(f"  No hay comidas registradas hoy.")
 
 
-def mostrar_ultimos(dias=7):
+def mostrar_ultimos(dias, uid, nombre):
     data = cargar()
-    progreso = data["progreso"]
+    if uid not in data["usuarios"]:
+        print(f"  Usuario '{nombre}' no encontrado.")
+        return
+    progreso = data["usuarios"][uid]["progreso"]
     fechas = sorted(progreso.keys(), reverse=True)[:dias]
-    print(f"\nÚltimos {len(fechas)} días de progreso:")
+    print(f"\n{nombre} - Últimos {len(fechas)} días:")
     print(f"{'Fecha':<14} {'Peso':<8} {'Cal':<8} {'Prot':<6} {'Pasos':<8} {'Elip':<6}")
     print("-" * 60)
     for f in fechas:
@@ -258,12 +325,17 @@ def mostrar_ultimos(dias=7):
         print(f"{f:<14} {str(peso):<8} {str(cal):<8} {str(prot):<6} {str(pasos):<8} {str(elip):<6}")
 
 
-def resumen():
+def resumen(uid, nombre):
     data = cargar()
-    progreso = data["progreso"]
+    if uid not in data["usuarios"]:
+        print(f"  Usuario '{nombre}' no encontrado.")
+        return
+    usuario = data["usuarios"][uid]
+    progreso = usuario["progreso"]
+    cliente = usuario["cliente"]
     fechas = sorted(progreso.keys())
     if not fechas:
-        print("  No hay datos registrados.")
+        print(f"  {nombre}: No hay datos registrados.")
         return
     inicio = fechas[0]
     total_dias = len(fechas)
@@ -273,7 +345,13 @@ def resumen():
     perdido = ""
     if primer_peso and ultimo_peso:
         perdido = f"{primer_peso - ultimo_peso:.1f} kg"
-    print(f"\n📊 Resumen del plan:")
+    print(f"\n📊 {nombre} - Resumen del plan:")
+    if cliente.get("edad"):
+        print(f"  Edad: {cliente['edad']} años")
+    if cliente.get("altura"):
+        print(f"  Altura: {cliente['altura']} cm")
+    if cliente.get("peso_objetivo"):
+        print(f"  Peso objetivo: {cliente['peso_objetivo']} kg")
     print(f"  Inicio: {inicio}")
     print(f"  Días registrados: {total_dias} ({semanas} semanas)")
     if perdido:
@@ -281,26 +359,128 @@ def resumen():
     print(f"  Último peso: {ultimo_peso} kg" if ultimo_peso else "")
 
 
+def listar_usuarios():
+    data = cargar()
+    if not data["usuarios"]:
+        print("  No hay usuarios registrados.")
+        return
+    print("\n👥 Usuarios registrados:")
+    for uid, info in data["usuarios"].items():
+        c = info["cliente"]
+        edad = c.get("edad", "?")
+        peso_obj = c.get("peso_objetivo", "")
+        nombre = c.get("nombre", uid.split("_")[0].title())
+        print(f"  - {nombre} ({edad} años)" + (f" → objetivo: {peso_obj} kg" if peso_obj else ""))
+
+
+def mostrar_perfil(uid, nombre):
+    data = cargar()
+    if uid not in data["usuarios"]:
+        print(f"  Usuario '{nombre}' no encontrado.")
+        return
+    c = data["usuarios"][uid]["cliente"]
+    print(f"\n📋 Perfil de {c.get('nombre', nombre)}:")
+    for k, v in c.items():
+        if k != "nombre":
+            print(f"  {k.replace('_', ' ').title()}: {v}")
+
+
+def mostrar_usuario_info(uid, nombre):
+    data = cargar()
+    if uid not in data["usuarios"]:
+        return ""
+    c = data["usuarios"][uid]["cliente"]
+    parts = [f"{c.get('nombre', nombre)}"]
+    if c.get("edad"):
+        parts.append(f"{c['edad']} años")
+    if c.get("altura"):
+        parts.append(f"{c['altura']}cm")
+    if c.get("peso_inicial"):
+        parts.append(f"{c['peso_inicial']}kg inicial")
+    if c.get("peso_objetivo"):
+        parts.append(f"objetivo {c['peso_objetivo']}kg")
+    if c.get("grasa_inicial"):
+        parts.append(f"grasa {c['grasa_inicial']}")
+    return " | ".join(parts)
+
+
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print("Uso: progress_tracker.py --log <datos> | --hoy | --comida <nombre> | --ultimos [dias] | --resumen")
+    args = sys.argv[1:]
+
+    usuario = None
+    edad = None
+
+    while args and args[0].startswith("--") and args[0] in ("--usuario", "--user", "-u"):
+        if len(args) < 2:
+            print("  Error: --usuario requiere un nombre")
+            sys.exit(1)
+        usuario = args[1]
+        args = args[2:]
+
+    while args and args[0].startswith("--") and args[0] in ("--edad", "--age"):
+        if len(args) < 2:
+            print("  Error: --edad requiere un número")
+            sys.exit(1)
+        edad = int(args[1])
+        args = args[2:]
+
+    if not args:
+        print("Uso: progress_tracker.py [--usuario <nombre>] [--edad <num>] <comando> [args...]")
+        print("Comandos: --log <datos> | --hoy | --comida <nombre> | --ultimos [dias] | --resumen | --init | --users | --perfil")
         sys.exit(1)
 
-    cmd = sys.argv[1]
+    cmd = args[0]
+
+    if cmd == "--users":
+        listar_usuarios()
+        sys.exit(0)
+
+    if cmd == "--init":
+        if not usuario or not edad:
+            print("  Error: --init requiere --usuario y --edad")
+            sys.exit(1)
+        kwargs = {}
+        rest = args[1:]
+        for k, v in zip(rest[::2], rest[1::2]):
+            k = k.lstrip("--").replace("-", "_")
+            try:
+                v = int(v)
+            except ValueError:
+                try:
+                    v = float(v)
+                except ValueError:
+                    pass
+            kwargs[k] = v
+        init_usuario(_user_id(usuario, edad), usuario, edad, **kwargs)
+        sys.exit(0)
+
+    if cmd == "--perfil" or cmd == "--profile":
+        if not usuario or not edad:
+            print("  Error: --perfil requiere --usuario y --edad")
+            sys.exit(1)
+        mostrar_perfil(_user_id(usuario, edad), usuario)
+        sys.exit(0)
+
+    if not usuario or not edad:
+        print("  Error: este comando requiere --usuario <nombre> --edad <num>")
+        sys.exit(1)
+
+    uid = _user_id(usuario, edad)
+
     if cmd in ("--log", "-l"):
-        procesar(sys.argv[2:])
+        procesar(args[1:], uid, usuario, edad)
     elif cmd in ("--hoy", "--today", "-t"):
-        mostrar_hoy()
+        mostrar_hoy(uid, usuario)
     elif cmd in ("--comida", "--meal", "-m"):
-        if len(sys.argv) > 2:
-            mostrar_comida(" ".join(sys.argv[2:]))
+        if len(args) > 1:
+            mostrar_comida(" ".join(args[1:]), uid, usuario)
         else:
-            print("Especifica el nombre de la comida (ej: --comida Desayuno)")
+            print("  Especifica el nombre de la comida (ej: --comida Desayuno)")
     elif cmd in ("--ultimos", "-u"):
-        dias = int(sys.argv[2]) if len(sys.argv) > 2 else 7
-        mostrar_ultimos(dias)
+        dias = int(args[1]) if len(args) > 1 else 7
+        mostrar_ultimos(dias, uid, usuario)
     elif cmd in ("--resumen", "-r"):
-        resumen()
+        resumen(uid, usuario)
     else:
-        print(f"Comando desconocido: {cmd}")
+        print(f"  Comando desconocido: {cmd}")
         sys.exit(1)

@@ -1,40 +1,56 @@
 {
-  "cliente": {
-    "edad": 42,
-    "altura": 172,
-    "peso_inicial": 79,
-    "grasa_inicial": "20-22%",
-    "peso_objetivo": 71
-  },
-  "progreso": {
-    "2026-06-20": {
-      "notas": "test",
-      "peso": 78.5,
-      "calorias": 380,
-      "proteina": 160,
-      "pasos": 10000,
-      "eliptica_min": 35,
-      "comidas": [
-        {
-          "timestamp": "15:56",
-          "nombre": "Desayuno",
-          "calorias": 400,
-          "proteina": 20,
-          "descripcion": "avena"
+  "usuarios": {
+    "usuario_42": {
+      "cliente": {
+        "edad": 42,
+        "altura": 172,
+        "peso_inicial": 79,
+        "grasa_inicial": "20-22%",
+        "peso_objetivo": 71,
+        "nombre": "Usuario"
+      },
+      "progreso": {
+        "2026-06-20": {
+          "notas": "test",
+          "peso": 78.5,
+          "calorias": 380,
+          "proteina": 160,
+          "pasos": 10000,
+          "eliptica_min": 35,
+          "comidas": [
+            {
+              "timestamp": "15:56",
+              "nombre": "Desayuno",
+              "calorias": 400,
+              "proteina": 20,
+              "descripcion": "avena"
+            },
+            {
+              "timestamp": "15:56",
+              "nombre": "Comida",
+              "calorias": 494,
+              "proteina": 50,
+              "descripcion": "pollo"
+            }
+          ],
+          "total_calorias": 894,
+          "total_proteina": 70
         },
-        {
-          "timestamp": "15:56",
-          "nombre": "Comida",
-          "calorias": 494,
-          "proteina": 50,
-          "descripcion": "pollo"
+        "2026-06-21": {
+          "peso": 78.0
         }
-      ],
-      "total_calorias": 894,
-      "total_proteina": 70
+      }
     },
-    "2026-06-21": {
-      "peso": 78.0
+    "alberto_42": {
+      "cliente": {
+        "nombre": "Alberto",
+        "edad": 42,
+        "altura": 172,
+        "peso_inicial": 79,
+        "peso_objetivo": 71,
+        "grasa_inicial": "20-22%"
+      },
+      "progreso": {}
     }
   }
 }
