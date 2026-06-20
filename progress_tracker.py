@@ -87,7 +87,7 @@ def guardar(data):
 PUSH_MARKER = os.path.join(REPO_DIR, ".last_push")
 
 
-def git_commit(mensaje):
+def git_commit(mensaje, force_push=False):
     try:
         os.chdir(REPO_DIR)
         subprocess.run(["git", "add", "."], capture_output=True)
@@ -96,7 +96,7 @@ def git_commit(mensaje):
         )
         if result.returncode == 0:
             print(f"  ✓ Commit: {mensaje}")
-            git_push_daily()
+            git_push_daily(force=force_push)
         else:
             if "nothing to commit" in result.stderr or "nothing to commit" in result.stdout:
                 pass
@@ -106,19 +106,28 @@ def git_commit(mensaje):
         print(f"  ⚠ Error en git: {e}")
 
 
-def git_push_daily():
+def git_push_daily(force=False):
     try:
         hoy = str(date.today())
-        if os.path.exists(PUSH_MARKER):
+        if not force and os.path.exists(PUSH_MARKER):
             with open(PUSH_MARKER) as f:
-                if f.read().strip() == hoy:
-                    return
+                ultimo = f.read().strip()
+            if ultimo >= hoy:
+                return
         subprocess.run(["git", "push"], capture_output=True, timeout=30)
         with open(PUSH_MARKER, "w") as f:
             f.write(hoy)
-        print(f"  ✓ Push diario completado")
+        motivo = "forzado (3+ comidas)" if force else "diario"
+        print(f"  ✓ Push {motivo}")
     except Exception as e:
         print(f"  ⚠ Error en push: {e}")
+
+
+def ultimo_push():
+    if not os.path.exists(PUSH_MARKER):
+        return "nunca"
+    with open(PUSH_MARKER) as f:
+        return f.read().strip()
 
 
 def login(nombre, password):
@@ -294,10 +303,11 @@ def procesar(args, uid, nombre):
     guardar(data)
 
     campos = [k for k in ("peso", "calorias", "proteina", "pasos", "eliptica_min", "total_calorias") if k in entrada]
+    force_push = nombre_comida and len(entrada.get("comidas", [])) >= 3
     if nombre_comida:
         campos.append("comida")
     mensaje = f"[{nombre}] progreso {hoy}: {' '.join(campos)}" if campos else f"[{nombre}] notas {hoy}"
-    git_commit(mensaje)
+    git_commit(mensaje, force_push=force_push)
 
     if cambios:
         print(f"  ✓ {nombre}: {', '.join(cambios)}")
@@ -517,6 +527,10 @@ if __name__ == "__main__":
         sys.exit(1)
 
     cmd = args[0]
+
+    if cmd == "--last-push":
+        print(f"  Último push: {ultimo_push()}")
+        sys.exit(0)
 
     if cmd == "--users":
         listar_usuarios()
