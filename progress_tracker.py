@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """
 Registro de progreso del entrenador personal.
-Soporta multiples usuarios identificados por nombre y edad.
+Soporta multiples usuarios con autenticacion por nombre y password.
 Guarda datos en progreso.json y hace auto-commit+push a GitHub.
 """
 
+import hashlib
 import json
 import os
 import subprocess
@@ -15,8 +16,58 @@ REPO_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_FILE = os.path.join(REPO_DIR, "progreso.json")
 
 
-def _user_id(nombre, edad):
-    return f"{nombre.strip().lower().replace(' ', '_')}_{edad}"
+def _hash(pwd):
+    return hashlib.sha256(pwd.encode()).hexdigest()
+
+
+def _user_id(nombre):
+    return nombre.strip().lower().replace(' ', '_')
+
+
+def _migrar(data):
+    if "usuarios" not in data:
+        old_cliente = data.get("cliente", {})
+        old_progreso = data.get("progreso", {})
+        nombre = old_cliente.get("nombre", "Usuario").strip()
+        if not nombre:
+            nombre = "Usuario"
+        uid = _user_id(nombre)
+        data = {
+            "usuarios": {
+                uid: {
+                    "password": _hash("cambiame"),
+                    "cliente": {**old_cliente, "nombre": nombre},
+                    "progreso": old_progreso,
+                }
+            }
+        }
+        guardar(data)
+        print(f"  ↪ Datos migrados a multi-usuario: {uid}")
+        return data
+
+    changed = False
+    for uid in list(data["usuarios"].keys()):
+        if "_" in uid:
+            parts = uid.rsplit("_", 1)
+            if parts[1].isdigit():
+                nuevo_uid = parts[0]
+                if nuevo_uid in data["usuarios"]:
+                    data["usuarios"][nuevo_uid]["progreso"].update(data["usuarios"][uid].get("progreso", {}))
+                    del data["usuarios"][uid]
+                else:
+                    data["usuarios"][nuevo_uid] = data["usuarios"].pop(uid)
+                if "password" not in data["usuarios"].get(nuevo_uid, {}):
+                    data["usuarios"][nuevo_uid]["password"] = _hash("cambiame")
+                changed = True
+
+    for uid in list(data["usuarios"].keys()):
+        if "password" not in data["usuarios"][uid]:
+            data["usuarios"][uid]["password"] = _hash("cambiame")
+            changed = True
+
+    if changed:
+        guardar(data)
+    return data
 
 
 def cargar():
@@ -24,23 +75,7 @@ def cargar():
         return {"usuarios": {}}
     with open(DATA_FILE, "r") as f:
         data = json.load(f)
-    if "usuarios" not in data:
-        old_cliente = data.get("cliente", {})
-        old_progreso = data.get("progreso", {})
-        default_name = old_cliente.get("nombre", "Usuario")
-        default_edad = old_cliente.get("edad", 0)
-        uid = _user_id(default_name, default_edad)
-        data = {
-            "usuarios": {
-                uid: {
-                    "cliente": {**old_cliente, "nombre": default_name},
-                    "progreso": old_progreso,
-                }
-            }
-        }
-        guardar(data)
-        print(f"  ↪ Datos migrados a multi-usuario: {uid}")
-    return data
+    return _migrar(data)
 
 
 def guardar(data):
@@ -68,15 +103,43 @@ def git_commit_push(mensaje):
         print(f"  ⚠ Error en git: {e}")
 
 
-def _obtener_o_crear_usuario(data, uid, nombre, edad):
+def login(nombre, password):
+    data = cargar()
+    uid = _user_id(nombre)
     if uid not in data["usuarios"]:
-        data["usuarios"][uid] = {
-            "cliente": {"nombre": nombre.strip().title(), "edad": edad},
-            "progreso": {},
-        }
-        guardar(data)
-        print(f"  ✓ Nuevo usuario creado: {nombre} ({edad} años)")
-    return data["usuarios"][uid]
+        return "NOT_FOUND"
+    if data["usuarios"][uid].get("password") != _hash(password):
+        return "WRONG_PASSWORD"
+    cliente = data["usuarios"][uid].get("cliente", {})
+    return json.dumps({"status": "ok", "cliente": cliente}, ensure_ascii=False)
+
+
+def register(nombre, password, **kwargs):
+    data = cargar()
+    uid = _user_id(nombre)
+    if uid in data["usuarios"]:
+        return "EXISTS"
+    data["usuarios"][uid] = {
+        "password": _hash(password),
+        "cliente": {"nombre": nombre.strip().title(), **kwargs},
+        "progreso": {},
+    }
+    guardar(data)
+    git_commit_push(f"[{nombre}] nuevo usuario registrado")
+    return "OK"
+
+
+def cambiar_password(nombre, old_password, new_password):
+    data = cargar()
+    uid = _user_id(nombre)
+    if uid not in data["usuarios"]:
+        return "NOT_FOUND"
+    if data["usuarios"][uid].get("password") != _hash(old_password):
+        return "WRONG_PASSWORD"
+    data["usuarios"][uid]["password"] = _hash(new_password)
+    guardar(data)
+    git_commit_push(f"[{nombre}] password cambiada")
+    return "OK"
 
 
 def _parse_kv(args):
@@ -91,9 +154,11 @@ def _parse_kv(args):
     return pares, raw
 
 
-def procesar(args, uid, nombre, edad):
+def procesar(args, uid, nombre):
     data = cargar()
-    usuario = _obtener_o_crear_usuario(data, uid, nombre, edad)
+    if uid not in data["usuarios"]:
+        return print(f"  Usuario '{nombre}' no encontrado.")
+    usuario = data["usuarios"][uid]
     hoy = str(date.today())
     entrada = usuario["progreso"].get(hoy, {"notas": ""})
     if "comidas" not in entrada:
@@ -222,17 +287,20 @@ def procesar(args, uid, nombre, edad):
         print(f"  ✓ {nombre}: Día {hoy} actualizado")
 
 
-def init_usuario(uid, nombre, edad, **kwargs):
+def init_usuario(uid, nombre, **kwargs):
     data = cargar()
     if uid in data["usuarios"]:
         print(f"  ⚠ Usuario '{nombre}' ya existe. Actualizando perfil.")
-    data["usuarios"][uid] = {
-        "cliente": {"nombre": nombre.strip().title(), "edad": edad, **kwargs},
-        "progreso": data["usuarios"].get(uid, {}).get("progreso", {}),
-    }
+        data["usuarios"][uid]["cliente"].update(kwargs)
+    else:
+        data["usuarios"][uid] = {
+            "password": _hash("cambiame"),
+            "cliente": {"nombre": nombre.strip().title(), **kwargs},
+            "progreso": {},
+        }
     guardar(data)
-    print(f"  ✓ Usuario '{nombre}' ({edad} años) inicializado.")
-    git_commit_push(f"[{nombre}] perfil creado")
+    print(f"  ✓ Usuario '{nombre}' inicializado.")
+    git_commit_push(f"[{nombre}] perfil actualizado")
 
 
 def mostrar_hoy(uid, nombre):
@@ -369,8 +437,9 @@ def listar_usuarios():
         c = info["cliente"]
         edad = c.get("edad", "?")
         peso_obj = c.get("peso_objetivo", "")
-        nombre = c.get("nombre", uid.split("_")[0].title())
-        print(f"  - {nombre} ({edad} años)" + (f" → objetivo: {peso_obj} kg" if peso_obj else ""))
+        nombre = c.get("nombre", uid.title())
+        has_pwd = info.get("password") and info["password"] != _hash("cambiame")
+        print(f"  - {nombre} ({edad} años)" + (f" → {peso_obj} kg" if peso_obj else "") + ("" if has_pwd else " ⚠️  password por defecto"))
 
 
 def mostrar_perfil(uid, nombre):
@@ -408,25 +477,25 @@ if __name__ == "__main__":
     args = sys.argv[1:]
 
     usuario = None
-    edad = None
+    password = None
 
-    while args and args[0].startswith("--") and args[0] in ("--usuario", "--user", "-u"):
+    while args and args[0] in ("--usuario", "--user", "-u"):
         if len(args) < 2:
             print("  Error: --usuario requiere un nombre")
             sys.exit(1)
         usuario = args[1]
         args = args[2:]
 
-    while args and args[0].startswith("--") and args[0] in ("--edad", "--age"):
+    while args and args[0] in ("--password", "--pass", "-p"):
         if len(args) < 2:
-            print("  Error: --edad requiere un número")
+            print("  Error: --password requiere una contraseña")
             sys.exit(1)
-        edad = int(args[1])
+        password = args[1]
         args = args[2:]
 
     if not args:
-        print("Uso: progress_tracker.py [--usuario <nombre>] [--edad <num>] <comando> [args...]")
-        print("Comandos: --log <datos> | --hoy | --comida <nombre> | --ultimos [dias] | --resumen | --init | --users | --perfil")
+        print("Uso: progress_tracker.py [--usuario <nombre>] [--password <pass>] <comando> [args...]")
+        print("Comandos: --login | --register | --set-password | --log <datos> | --hoy | --comida <nombre> | --ultimos [dias] | --resumen | --init | --users | --perfil")
         sys.exit(1)
 
     cmd = args[0]
@@ -435,40 +504,108 @@ if __name__ == "__main__":
         listar_usuarios()
         sys.exit(0)
 
-    if cmd == "--init":
-        if not usuario or not edad:
-            print("  Error: --init requiere --usuario y --edad")
+    if cmd == "--login":
+        if not usuario:
+            print("  Error: --login requiere --usuario")
             sys.exit(1)
+        if not password:
+            import getpass
+            password = getpass.getpass("  Contraseña: ")
+        result = login(usuario, password)
+        print(result)
+        sys.exit(0)
+
+    if cmd == "--register":
+        if not usuario:
+            print("  Error: --register requiere --usuario")
+            sys.exit(1)
+        if not password:
+            import getpass
+            password = getpass.getpass("  Contraseña: ")
+            pwd2 = getpass.getpass("  Repite contraseña: ")
+            if password != pwd2:
+                print("  Error: las contraseñas no coinciden")
+                sys.exit(1)
         kwargs = {}
         rest = args[1:]
-        for k, v in zip(rest[::2], rest[1::2]):
-            k = k.lstrip("--").replace("-", "_")
-            try:
-                v = int(v)
-            except ValueError:
+        i = 0
+        while i < len(rest):
+            k = rest[i].lstrip("--").replace("-", "_")
+            if i + 1 < len(rest) and not rest[i + 1].startswith("--"):
+                v = rest[i + 1]
                 try:
-                    v = float(v)
+                    v = int(v)
                 except ValueError:
-                    pass
-            kwargs[k] = v
-        init_usuario(_user_id(usuario, edad), usuario, edad, **kwargs)
+                    try:
+                        v = float(v)
+                    except ValueError:
+                        pass
+                kwargs[k] = v
+                i += 2
+            else:
+                i += 1
+        result = register(usuario, password, **kwargs)
+        if result == "EXISTS":
+            print(f"  Error: el usuario '{usuario}' ya existe. Usa --login o --set-password.")
+        elif result == "OK":
+            print(f"  ✓ Usuario '{usuario}' registrado correctamente.")
+        else:
+            print(result)
         sys.exit(0)
 
-    if cmd == "--perfil" or cmd == "--profile":
-        if not usuario or not edad:
-            print("  Error: --perfil requiere --usuario y --edad")
+    if cmd == "--set-password":
+        if not usuario or not password:
+            print("  Error: --set-password requiere --usuario y --password (actual)")
             sys.exit(1)
-        mostrar_perfil(_user_id(usuario, edad), usuario)
+        import getpass
+        new_pwd = getpass.getpass("  Nueva contraseña: ")
+        pwd2 = getpass.getpass("  Repite contraseña: ")
+        if new_pwd != pwd2:
+            print("  Error: las contraseñas no coinciden")
+            sys.exit(1)
+        result = cambiar_password(usuario, password, new_pwd)
+        if result == "NOT_FOUND":
+            print(f"  Error: usuario '{usuario}' no encontrado.")
+        elif result == "WRONG_PASSWORD":
+            print("  Error: contraseña actual incorrecta.")
+        elif result == "OK":
+            print(f"  ✓ Contraseña actualizada para '{usuario}'.")
         sys.exit(0)
 
-    if not usuario or not edad:
-        print("  Error: este comando requiere --usuario <nombre> --edad <num>")
+    if not usuario:
+        print("  Error: este comando requiere --usuario <nombre>")
         sys.exit(1)
 
-    uid = _user_id(usuario, edad)
+    uid = _user_id(usuario)
+
+    if cmd == "--init":
+        kwargs = {}
+        rest = args[1:]
+        i = 0
+        while i < len(rest):
+            k = rest[i].lstrip("--").replace("-", "_")
+            if i + 1 < len(rest) and not rest[i + 1].startswith("--"):
+                v = rest[i + 1]
+                try:
+                    v = int(v)
+                except ValueError:
+                    try:
+                        v = float(v)
+                    except ValueError:
+                        pass
+                kwargs[k] = v
+                i += 2
+            else:
+                i += 1
+        init_usuario(uid, usuario, **kwargs)
+        sys.exit(0)
+
+    if cmd in ("--perfil", "--profile"):
+        mostrar_perfil(uid, usuario)
+        sys.exit(0)
 
     if cmd in ("--log", "-l"):
-        procesar(args[1:], uid, usuario, edad)
+        procesar(args[1:], uid, usuario)
     elif cmd in ("--hoy", "--today", "-t"):
         mostrar_hoy(uid, usuario)
     elif cmd in ("--comida", "--meal", "-m"):

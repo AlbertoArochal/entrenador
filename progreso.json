@@ -1,6 +1,6 @@
 {
   "usuarios": {
-    "usuario_42": {
+    "usuario": {
       "cliente": {
         "edad": 42,
         "altura": 172,
@@ -39,9 +39,10 @@
         "2026-06-21": {
           "peso": 78.0
         }
-      }
+      },
+      "password": "33e4b311390fb53f9d79540d2127011178afbdfa334a77b942a22ac962022efd"
     },
-    "alberto_42": {
+    "alberto": {
       "cliente": {
         "nombre": "Alberto",
         "edad": 42,
@@ -65,9 +66,10 @@
           "total_calorias": 400,
           "total_proteina": 20
         }
-      }
+      },
+      "password": "33e4b311390fb53f9d79540d2127011178afbdfa334a77b942a22ac962022efd"
     },
-    "maria_28": {
+    "maria": {
       "cliente": {
         "nombre": "Maria",
         "edad": 28,
@@ -90,15 +92,28 @@
           "total_calorias": 350,
           "total_proteina": 15
         }
-      }
+      },
+      "password": "33e4b311390fb53f9d79540d2127011178afbdfa334a77b942a22ac962022efd"
     },
-    "alberto_nalgaslocas_42": {
+    "alberto_nalgaslocas": {
       "cliente": {
         "nombre": "Alberto Nalgaslocas",
         "edad": 42,
         "altura": 172,
         "peso_inicial": 80,
         "grasa_inicial": "20-22%"
+      },
+      "progreso": {},
+      "password": "33e4b311390fb53f9d79540d2127011178afbdfa334a77b942a22ac962022efd"
+    },
+    "nuevouser": {
+      "password": "d821977d5f70b5eac60744e4beb7012e0c2c91325d84814da8bb24408277ed70",
+      "cliente": {
+        "nombre": "Nuevouser",
+        "edad": 30,
+        "altura": 175,
+        "peso_inicial": 80,
+        "peso_objetivo": 72
       },
       "progreso": {}
     }

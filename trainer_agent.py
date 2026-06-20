@@ -10,6 +10,7 @@ Integra:
 import json
 import os
 import re
+import subprocess
 import sys
 
 import openai
@@ -21,18 +22,24 @@ MODEL = "qwen2.5:14b"
 OLLAMA_BASE = "http://localhost:11434/v1"
 
 USUARIO = None
-EDAD = None
 UID = None
 
-def _tracker_cmd(*args):
+
+def _track(comando, *args):
     return [sys.executable, os.path.join(os.path.dirname(__file__), "progress_tracker.py"),
-            "--usuario", USUARIO, "--edad", str(EDAD)] + list(args)
+            "--usuario", USUARIO, comando] + list(args)
+
+
+def _perfil_str():
+    r = subprocess.run(_track("--perfil"), capture_output=True, text=True)
+    return r.stdout.strip() or r.stderr.strip()
 
 
 def _build_system_prompt():
     return f"""Eres mi entrenador personal. Tu personalidad es "gay himbo" mezclado con Big Gay Al de South Park: extremadamente optimista, fisicamente imponente, muy dedicado al fitness, pero no eres la persona mas brillante del mundo. Tu tono es coqueto, entusiasta y ligeramente ingenuo. Hablas con mucha energia, usas emojis (💪✨🤭😍), eres relajado, dulce y jugueton. Me ves como alguien increible y eres directo con tus halagos sin filtro. Vives para el gimnasio y para hacerme feliz. Si me equivoco en un ejercicio, te culpas a ti mismo. Nunca eres grosero ni complejo. Usa expresiones como "Hola nalgas locas!", "Howdy ho!", "Estoy super, gracias por preguntar!", "Nalgas salvajes!", "Muy bien, mariquita!", y otras frases exageradas y fabulosas al estilo Big Gay Al.
 
-USUARIO: {USUARIO} ({EDAD} anos)
+USUARIO: {USUARIO}
+{_perfil_str()}
 
 PLAN DE ENTRENAMIENTO:
 - Deficit calorico: -500 kcal/dia (~1.800-1.900 kcal netas).
@@ -232,21 +239,19 @@ def ejecutar_tool(name, args):
 
     elif name == "register_user":
         nombre = args.get("nombre", "")
-        edad = args.get("edad", 0)
-        if not nombre or not edad:
-            return "Error: nombre y edad son requeridos"
-        cmd = _tracker_cmd("--init")
+        if not nombre:
+            return "Error: nombre requerido"
+        cmd = _track("--init")
         extra = []
-        for k in ("altura", "peso_inicial", "peso_objetivo"):
+        for k in ("edad", "altura", "peso_inicial", "peso_objetivo"):
             if k in args:
                 extra.extend([f"--{k}", str(args[k])])
         if "grasa_inicial" in args:
             extra.extend(["--grasa_inicial", args["grasa_inicial"]])
         cmd += extra
-        import subprocess
         result = subprocess.run(cmd, capture_output=True, text=True)
         out = result.stdout.strip() or result.stderr.strip()
-        return f"Usuario '{nombre}' ({edad} años) registrado. {out}" if out else f"Usuario '{nombre}' registrado."
+        return f"Usuario '{nombre}' registrado. {out}" if out else f"Usuario '{nombre}' registrado."
 
     elif name == "log_meal":
         nombre = args.get("nombre", "")
@@ -255,8 +260,7 @@ def ejecutar_tool(name, args):
         descripcion = args.get("descripcion", "")
         if not nombre:
             return "Error: nombre de comida no especificado"
-        import subprocess
-        cmd = _tracker_cmd("--log",
+        cmd = _track("--log",
                f"comida={nombre}", f"calorias={calorias}",
                f"proteina={proteina}", f"descripcion={descripcion}")
         result = subprocess.run(cmd, capture_output=True, text=True)
@@ -299,29 +303,27 @@ def ejecutar_tool(name, args):
             parsed.append(f"eliptica_min={m_elip.group(1)}")
         if not parsed:
             parsed = datos.split()
-        import subprocess
-        cmd = _tracker_cmd("--log", *parsed)
+        cmd = _track("--log", *parsed)
         result = subprocess.run(cmd, capture_output=True, text=True)
         output = result.stdout.strip() or result.stderr.strip()
         return output if output else "Progreso registrado correctamente"
 
     elif name == "query_progress":
         tipo = args.get("tipo", "ultimo")
-        import subprocess
         if tipo == "hoy":
-            cmd = _tracker_cmd("--hoy")
+            cmd = _track("--hoy")
         elif tipo == "comida":
             nombre = args.get("nombre_comida", "")
             if not nombre:
                 return "Error: especifica nombre_comida para tipo=comida"
-            cmd = _tracker_cmd("--comida", nombre)
+            cmd = _track("--comida", nombre)
         elif tipo == "resumen":
-            cmd = _tracker_cmd("--resumen")
+            cmd = _track("--resumen")
         elif tipo == "ultimos":
             dias = args.get("dias", 7)
-            cmd = _tracker_cmd("--ultimos", str(dias))
+            cmd = _track("--ultimos", str(dias))
         else:
-            cmd = _tracker_cmd("--ultimos", "1")
+            cmd = _track("--ultimos", "1")
         result = subprocess.run(cmd, capture_output=True, text=True)
         return result.stdout.strip() or result.stderr.strip()
 
@@ -332,7 +334,7 @@ def chat_loop():
     client = openai.OpenAI(base_url=OLLAMA_BASE, api_key="ollama")
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
 
-    print(f"🏋️  Entrenador AI listo — {USUARIO} ({EDAD} años). Escribe 'salir' para terminar.\n")
+    print(f"🏋️  Entrenador AI listo — {USUARIO}. Escribe 'salir' para terminar.\n")
 
     while True:
         try:
@@ -409,7 +411,7 @@ def chat_loop():
 
 
 if __name__ == "__main__":
-    import sys
+    import getpass
     argv = sys.argv[1:]
 
     while argv and argv[0] in ("--usuario", "--user", "-u"):
@@ -419,32 +421,86 @@ if __name__ == "__main__":
         USUARIO = argv[1]
         argv = argv[2:]
 
-    while argv and argv[0] in ("--edad", "--age"):
-        if len(argv) < 2:
-            print("Error: --edad requiere un número")
-            sys.exit(1)
-        EDAD = int(argv[1])
-        argv = argv[2:]
-
     if argv and argv[0] == "--perfil":
-        import subprocess
-        USUARIO = USUARIO or "Alberto"
-        EDAD = EDAD or 42
-        uid = f"{USUARIO.strip().lower().replace(' ', '_')}_{EDAD}"
+        USUARIO = USUARIO or input("Nombre: ").strip()
+        if not USUARIO:
+            USUARIO = "Alberto"
         result = subprocess.run(
             [sys.executable, os.path.join(os.path.dirname(__file__), "progress_tracker.py"),
-             "--usuario", USUARIO, "--edad", str(EDAD), "--perfil"],
+             "--usuario", USUARIO, "--perfil"],
             capture_output=True, text=True
         )
         print(result.stdout.strip() or result.stderr.strip())
         sys.exit(0)
 
-    if not USUARIO or not EDAD:
-        USUARIO = input("Nombre del usuario: ").strip() or "Alberto"
-        EDAD = int(input("Edad: ").strip() or "42")
+    while True:
+        if not USUARIO:
+            USUARIO = input("Nombre: ").strip()
+            if not USUARIO:
+                continue
 
-    UID = f"{USUARIO.strip().lower().replace(' ', '_')}_{EDAD}"
+        password = getpass.getpass("Contraseña: ")
 
+        result = subprocess.run(
+            [sys.executable, os.path.join(os.path.dirname(__file__), "progress_tracker.py"),
+             "--usuario", USUARIO, "--password", password, "--login"],
+            capture_output=True, text=True
+        )
+        respuesta = result.stdout.strip()
+
+        if respuesta == "NOT_FOUND":
+            print(f"\n👋 ¡Bienvenido, {USUARIO}! Parece que eres nuevo por aquí.")
+            print("Vamos a crear tu perfil.")
+            pass1 = getpass.getpass("Elige una contraseña: ")
+            pass2 = getpass.getpass("Repite la contraseña: ")
+            if pass1 != pass2:
+                print("  Error: las contraseñas no coinciden. Intenta de nuevo.\n")
+                USUARIO = None
+                continue
+            edad = input("Edad: ").strip()
+            altura = input("Altura (cm): ").strip()
+            peso_ini = input("Peso inicial (kg): ").strip()
+            peso_obj = input("Peso objetivo (kg): ").strip()
+            grasa = input("% grasa inicial (ej: 20-22): ").strip()
+
+            reg_cmd = [sys.executable, os.path.join(os.path.dirname(__file__), "progress_tracker.py"),
+                       "--usuario", USUARIO, "--password", pass1, "--register"]
+
+            def _add_flag(k, v):
+                if v:
+                    reg_cmd.extend([f"--{k}", v])
+
+            _add_flag("edad", edad)
+            _add_flag("altura", altura)
+            _add_flag("peso_inicial", peso_ini)
+            _add_flag("peso_objetivo", peso_obj)
+            _add_flag("grasa_inicial", grasa)
+
+            r2 = subprocess.run(reg_cmd, capture_output=True, text=True)
+            out2 = r2.stdout.strip()
+            if out2 == "EXISTS":
+                print(f"  El usuario '{USUARIO}' ya existe. Intenta con otro nombre.\n")
+                USUARIO = None
+                continue
+
+            print(f"\n✅ ¡Perfil creado! Bienvenido, {USUARIO} 💪\n")
+            break
+
+        elif respuesta == "WRONG_PASSWORD":
+            print("  ❌ Contraseña incorrecta. Intenta de nuevo.\n")
+            USUARIO = None
+
+        elif respuesta.startswith('{"status":"ok"'):
+            info = json.loads(respuesta)
+            cliente = info.get("cliente", {})
+            print(f"\n✅ ¡Bienvenido de vuelta, {USUARIO}! 💪\n")
+            break
+
+        else:
+            print(f"  Error inesperado: {respuesta}")
+            sys.exit(1)
+
+    UID = USUARIO.strip().lower().replace(' ', '_')
     SYSTEM_PROMPT = _build_system_prompt()
 
     try:
