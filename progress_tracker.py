@@ -84,7 +84,10 @@ def guardar(data):
         f.write("\n")
 
 
-def git_commit_push(mensaje):
+PUSH_MARKER = os.path.join(REPO_DIR, ".last_push")
+
+
+def git_commit(mensaje):
     try:
         os.chdir(REPO_DIR)
         subprocess.run(["git", "add", "."], capture_output=True)
@@ -92,8 +95,8 @@ def git_commit_push(mensaje):
             ["git", "commit", "-m", mensaje], capture_output=True, text=True
         )
         if result.returncode == 0:
-            subprocess.run(["git", "push"], capture_output=True)
-            print(f"  ✓ Commit + push: {mensaje}")
+            print(f"  ✓ Commit: {mensaje}")
+            git_push_daily()
         else:
             if "nothing to commit" in result.stderr or "nothing to commit" in result.stdout:
                 pass
@@ -101,6 +104,21 @@ def git_commit_push(mensaje):
                 print(f"  ⚠ {result.stderr.strip()}")
     except Exception as e:
         print(f"  ⚠ Error en git: {e}")
+
+
+def git_push_daily():
+    try:
+        hoy = str(date.today())
+        if os.path.exists(PUSH_MARKER):
+            with open(PUSH_MARKER) as f:
+                if f.read().strip() == hoy:
+                    return
+        subprocess.run(["git", "push"], capture_output=True, timeout=30)
+        with open(PUSH_MARKER, "w") as f:
+            f.write(hoy)
+        print(f"  ✓ Push diario completado")
+    except Exception as e:
+        print(f"  ⚠ Error en push: {e}")
 
 
 def login(nombre, password):
@@ -125,7 +143,7 @@ def register(nombre, password, **kwargs):
         "progreso": {},
     }
     guardar(data)
-    git_commit_push(f"[{nombre}] nuevo usuario registrado")
+    git_commit(f"[{nombre}] nuevo usuario registrado")
     return "OK"
 
 
@@ -138,7 +156,7 @@ def cambiar_password(nombre, old_password, new_password):
         return "WRONG_PASSWORD"
     data["usuarios"][uid]["password"] = _hash(new_password)
     guardar(data)
-    git_commit_push(f"[{nombre}] password cambiada")
+    git_commit(f"[{nombre}] password cambiada")
     return "OK"
 
 
@@ -279,7 +297,7 @@ def procesar(args, uid, nombre):
     if nombre_comida:
         campos.append("comida")
     mensaje = f"[{nombre}] progreso {hoy}: {' '.join(campos)}" if campos else f"[{nombre}] notas {hoy}"
-    git_commit_push(mensaje)
+    git_commit(mensaje)
 
     if cambios:
         print(f"  ✓ {nombre}: {', '.join(cambios)}")
@@ -300,7 +318,7 @@ def init_usuario(uid, nombre, **kwargs):
         }
     guardar(data)
     print(f"  ✓ Usuario '{nombre}' inicializado.")
-    git_commit_push(f"[{nombre}] perfil actualizado")
+    git_commit(f"[{nombre}] perfil actualizado")
 
 
 def mostrar_hoy(uid, nombre):
