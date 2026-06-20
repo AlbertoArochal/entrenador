@@ -356,7 +356,10 @@ def chat_loop():
 
         messages.append({"role": "user", "content": user_input})
 
-        while True:
+        tool_calls_this_turn = 0
+        MAX_TOOL_CALLS = 8
+
+        while tool_calls_this_turn < MAX_TOOL_CALLS:
             response = client.chat.completions.create(
                 model=MODEL,
                 messages=messages,
@@ -369,6 +372,7 @@ def chat_loop():
             msg = response.choices[0].message
 
             if msg.tool_calls:
+                tool_calls_this_turn += 1
                 messages.append({
                     "role": "assistant",
                     "content": msg.content or "",
@@ -392,6 +396,17 @@ def chat_loop():
                     except json.JSONDecodeError:
                         args = {}
 
+                    if name == "register_user" and not any(
+                        word in user_input.lower()
+                        for word in ("registr", "nuevo usuario", "crear perfil", "cambiar de usuario", "nuevo perfil")
+                    ):
+                        messages.append({
+                            "role": "tool",
+                            "tool_call_id": tc.id,
+                            "content": "ignored: register_user no solicitado",
+                        })
+                        continue
+
                     print(f"  🔧 {name}({json.dumps(args, ensure_ascii=False)})")
                     result = ejecutar_tool(name, args)
                     print(f"  ✓ Resultado obtenido")
@@ -408,6 +423,10 @@ def chat_loop():
             print(f"\nEntrenador: {respuesta}\n")
             messages.append({"role": "assistant", "content": respuesta})
             break
+        else:
+            respuesta = "Perdona, me he liado un poco. ¿Puedes repetirme la pregunta? 😅"
+            print(f"\nEntrenador: {respuesta}\n")
+            messages.append({"role": "assistant", "content": respuesta})
 
 
 if __name__ == "__main__":
