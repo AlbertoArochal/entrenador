@@ -51,22 +51,7 @@
         "peso_objetivo": 71,
         "grasa_inicial": "20-22%"
       },
-      "progreso": {
-        "2026-06-20": {
-          "notas": "",
-          "comidas": [
-            {
-              "timestamp": "16:03",
-              "nombre": "Desayuno",
-              "calorias": 400,
-              "proteina": 20,
-              "descripcion": "avena"
-            }
-          ],
-          "total_calorias": 400,
-          "total_proteina": 20
-        }
-      },
+      "progreso": {},
       "password": "d461cf0466c25a4540d523f981f76a9cedcf3456cb195fc5725d040a634c22cc"
     },
     "maria": {
