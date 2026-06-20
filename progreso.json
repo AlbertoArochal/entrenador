@@ -60,7 +60,22 @@
         "peso_inicial": 65,
         "peso_objetivo": 58
       },
-      "progreso": {}
+      "progreso": {
+        "2026-06-20": {
+          "notas": "",
+          "comidas": [
+            {
+              "timestamp": "16:03",
+              "nombre": "Desayuno",
+              "calorias": 350,
+              "proteina": 15,
+              "descripcion": "avena"
+            }
+          ],
+          "total_calorias": 350,
+          "total_proteina": 15
+        }
+      }
     }
   }
 }
