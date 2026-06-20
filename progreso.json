@@ -51,6 +51,16 @@
         "grasa_inicial": "20-22%"
       },
       "progreso": {}
+    },
+    "maria_28": {
+      "cliente": {
+        "nombre": "Maria",
+        "edad": 28,
+        "altura": 165,
+        "peso_inicial": 65,
+        "peso_objetivo": 58
+      },
+      "progreso": {}
     }
   }
 }
