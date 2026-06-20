@@ -21,10 +21,17 @@
           "calorias": 400,
           "proteina": 20,
           "descripcion": "avena"
+        },
+        {
+          "timestamp": "15:56",
+          "nombre": "Comida",
+          "calorias": 494,
+          "proteina": 50,
+          "descripcion": "pollo"
         }
       ],
-      "total_calorias": 400,
-      "total_proteina": 20
+      "total_calorias": 894,
+      "total_proteina": 70
     },
     "2026-06-21": {
       "peso": 78.0
