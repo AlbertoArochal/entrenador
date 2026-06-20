@@ -1,5 +1,6 @@
 import requests
 import json
+import time
 
 
 def get_nutrition_data(food_name):
@@ -11,18 +12,27 @@ def get_nutrition_data(food_name):
         "User-Agent": "EntrenadorAI/1.0 (alberto@arochal.dev)",
         "Accept": "application/json",
     }
-    url = "https://world.openfoodfacts.org/api/v2/search"
+    url = "https://world.openfoodfacts.org/cgi/search.pl"
     params = {
         "search_terms": food_name,
+        "json": 1,
         "page_size": 2,
         "fields": "product_name,nutriments",
     }
-    try:
-        resp = requests.get(url, params=params, headers=headers, timeout=15)
-        resp.raise_for_status()
-        data = resp.json()
-    except Exception as e:
-        return {"error": f"Error consultando OpenFoodFacts: {e}"}
+    for attempt in range(3):
+        try:
+            resp = requests.get(url, params=params, headers=headers, timeout=20)
+            if resp.status_code == 503 and attempt < 2:
+                time.sleep(3 ** attempt)
+                continue
+            resp.raise_for_status()
+            data = resp.json()
+            break
+        except Exception as e:
+            if attempt < 2:
+                time.sleep(3 ** attempt)
+                continue
+            return {"error": f"Error consultando OpenFoodFacts: {e}"}
 
     products = data.get("products", [])
     if not products:

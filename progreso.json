@@ -13,7 +13,18 @@
       "calorias": 380,
       "proteina": 160,
       "pasos": 11000,
-      "eliptica_min": 40
+      "eliptica_min": 40,
+      "comidas": [
+        {
+          "timestamp": "15:56",
+          "nombre": "Desayuno",
+          "calorias": 400,
+          "proteina": 20,
+          "descripcion": "avena"
+        }
+      ],
+      "total_calorias": 400,
+      "total_proteina": 20
     },
     "2026-06-21": {
       "peso": 78.0

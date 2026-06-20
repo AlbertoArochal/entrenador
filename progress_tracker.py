@@ -2,6 +2,7 @@
 """
 Registro de progreso del entrenador personal.
 Guarda datos diarios en progreso.json y hace auto-commit+push a GitHub.
+Soporta comidas individuales con timestamp y totales diarios acumulados.
 """
 
 import json
@@ -56,24 +57,28 @@ def git_commit_push(mensaje):
         print(f"  ⚠ Error en git: {e}")
 
 
+def _parse_kv(args):
+    raw = " ".join(args)
+    import re
+    pares = list(re.findall(r'([a-zA-ZÀ-ÿ_]+)\s*[=:]\s*(\S+)', raw))
+    for m in re.finditer(r'(\d+[.,]?\d*)\s*(kcal|calorias|calorías|proteína|proteina|proteinas|proteínas|pasos|paso)', raw):
+        pares.append((m.group(2), m.group(1)))
+    for k in ('peso', 'pesé', 'pese', 'calorias', 'calorías', 'proteína', 'proteina', 'pasos', 'eliptica', 'elíptica'):
+        for m in re.finditer(rf'{k}\s+(\d+[.,]?\d*)', raw):
+            pares.append((k, m.group(1)))
+    return pares, raw
+
+
 def procesar(args):
     data = cargar()
     hoy = str(date.today())
     entrada = data["progreso"].get(hoy, {"notas": ""})
+    if "comidas" not in entrada:
+        entrada["comidas"] = []
 
     cambios = []
-    raw = " ".join(args)
+    pares, raw = _parse_kv(args)
     import re
-
-    # 1) key=value or key:value
-    pares = list(re.findall(r'([a-zA-ZÀ-ÿ_]+)\s*[=:]\s*(\S+)', raw))
-    # 2) value key  (e.g. "1800 calorias", "165 proteina")
-    for m in re.finditer(r'(\d+[.,]?\d*)\s*(kcal|calorias|calorías|proteína|proteina|proteinas|proteínas|pasos|paso)', raw):
-        pares.append((m.group(2), m.group(1)))
-    # 3) key then value separated by whitespace  (e.g. "peso 76.8")
-    for k in ('peso', 'pesé', 'pese', 'calorias', 'calorías', 'proteína', 'proteina', 'pasos', 'eliptica', 'elíptica'):
-        for m in re.finditer(rf'{k}\s+(\d+[.,]?\d*)', raw):
-            pares.append((k, m.group(1)))
 
     clave_valor_map = {}
     for clave, valor in pares:
@@ -115,21 +120,45 @@ def procesar(args):
                     clave_valor_map["eliptica_min"] = v
                 except ValueError:
                     pass
+        elif clave in ("comida", "nombre", "meal"):
+            clave_valor_map["nombre_comida"] = valor.strip('"').strip("'")
+        elif clave in ("descripcion", "alimentos", "desc"):
+            clave_valor_map["descripcion"] = valor.strip('"').strip("'")
         else:
             try:
                 v = float(valor.replace(",", "."))
             except ValueError:
                 continue
 
-    # Also detect standalone "XXkg" patterns
     m_kg = re.search(r'(\d+[.,]?\d*)\s*kg', raw)
     if m_kg and "peso" not in clave_valor_map:
         clave_valor_map["peso"] = float(m_kg.group(1).replace(",", "."))
 
-    # Check for notas in raw text
-    m_notas = re.search(r'(?:notas?|comentario)\s*[:=]?\s*(.+?)(?:$|(?=\s+(?:peso|calorias|proteina|pasos|eliptica)))', raw)
+    m_notas = re.search(r'(?:notas?|comentario)\s*[:=]?\s*(.+?)(?:$|(?=\s+(?:peso|calorias|proteina|pasos|eliptica|comida|nombre)))', raw)
     if m_notas:
         entrada["notas"] = m_notas.group(1).strip().rstrip(",;")
+
+    nombre_comida = clave_valor_map.pop("nombre_comida", None)
+    if nombre_comida:
+        cal = int(clave_valor_map.pop("calorias", 0))
+        prot = int(clave_valor_map.pop("proteina", 0))
+        desc = clave_valor_map.pop("descripcion", "")
+        timestamp = datetime.now().strftime("%H:%M")
+
+        meal_entry = {
+            "timestamp": timestamp,
+            "nombre": str(nombre_comida).strip().title(),
+            "calorias": cal,
+            "proteina": prot,
+            "descripcion": str(desc).strip(),
+        }
+        entrada["comidas"].append(meal_entry)
+        cambios.append(f"comida={meal_entry['nombre']}({cal}kcal)")
+
+        total_cal = sum(m.get("calorias", 0) for m in entrada["comidas"])
+        total_prot = sum(m.get("proteina", 0) for m in entrada["comidas"])
+        entrada["total_calorias"] = total_cal
+        entrada["total_proteina"] = total_prot
 
     for clave, valor in clave_valor_map.items():
         cambios.append(f"{clave}={valor}")
@@ -138,14 +167,78 @@ def procesar(args):
     data["progreso"][hoy] = entrada
     guardar(data)
 
-    campos_registrados = [k for k in ("peso", "calorias", "proteina", "pasos", "eliptica_min") if k in entrada]
-    mensaje = f"progreso {hoy}: {' '.join(campos_registrados)}" if campos_registrados else f"notas {hoy}"
+    campos = [k for k in ("peso", "calorias", "proteina", "pasos", "eliptica_min", "total_calorias") if k in entrada]
+    if nombre_comida:
+        campos.append("comida")
+    mensaje = f"progreso {hoy}: {' '.join(campos)}" if campos else f"notas {hoy}"
     git_commit_push(mensaje)
 
     if cambios:
         print(f"  ✓ Registrado {hoy}: {', '.join(cambios)}")
     else:
         print(f"  ✓ Día {hoy} actualizado")
+
+
+def mostrar_hoy():
+    data = cargar()
+    hoy = str(date.today())
+    entrada = data["progreso"].get(hoy, {})
+    comidas = entrada.get("comidas", [])
+
+    print(f"\n📋 Hoy ({hoy}):")
+    if not comidas and not any(k in entrada for k in ("peso", "total_calorias", "pasos")):
+        print("  No hay datos registrados hoy.")
+        return
+
+    if comidas:
+        print(f"\n  🍽️  Comidas del día:")
+        print(f"  {'Hora':<8} {'Nombre':<14} {'Cal':<8} {'Prot':<6} {'Descripción'}")
+        print(f"  " + "-" * 60)
+        for c in comidas:
+            print(f"  {c.get('timestamp',''):<8} {c.get('nombre',''):<14} {c.get('calorias','-'):<8} {c.get('proteina','-'):<6} {c.get('descripcion','')}")
+        print(f"  " + "-" * 60)
+        print(f"  {'':<8} {'TOTAL':<14} {entrada.get('total_calorias', 0):<8} {entrada.get('total_proteina', 0):<6}")
+
+    daily_items = []
+    if "peso" in entrada:
+        daily_items.append(f"Peso: {entrada['peso']} kg")
+    if "total_calorias" in entrada:
+        daily_items.append(f"Calorías totales: {entrada['total_calorias']} kcal")
+    elif "calorias" in entrada:
+        daily_items.append(f"Calorías: {entrada['calorias']} kcal")
+    if "total_proteina" in entrada:
+        daily_items.append(f"Proteína total: {entrada['total_proteina']} g")
+    elif "proteina" in entrada:
+        daily_items.append(f"Proteína: {entrada['proteina']} g")
+    if "pasos" in entrada:
+        daily_items.append(f"Pasos: {entrada['pasos']}")
+    if "eliptica_min" in entrada:
+        daily_items.append(f"Elíptica: {entrada['eliptica_min']} min")
+    if daily_items:
+        print(f"\n  📊 Totales del día: {' | '.join(daily_items)}")
+
+
+def mostrar_comida(nombre):
+    data = cargar()
+    hoy = str(date.today())
+    entrada = data["progreso"].get(hoy, {})
+    comidas = entrada.get("comidas", [])
+    nombre_b = nombre.strip().lower()
+
+    for c in comidas:
+        if c.get("nombre", "").strip().lower() == nombre_b:
+            print(f"\n  🍽️  {c['nombre']} ({c['timestamp']})")
+            print(f"     Calorías: {c.get('calorias', 0)} kcal")
+            print(f"     Proteína: {c.get('proteina', 0)} g")
+            if c.get("descripcion"):
+                print(f"     Alimentos: {c['descripcion']}")
+            return
+
+    names = [c.get("nombre", "") for c in comidas]
+    if names:
+        print(f"  Comida '{nombre}' no encontrada. Comidas de hoy: {', '.join(names)}")
+    else:
+        print(f"  No hay comidas registradas hoy.")
 
 
 def mostrar_ultimos(dias=7):
@@ -158,8 +251,8 @@ def mostrar_ultimos(dias=7):
     for f in fechas:
         e = progreso[f]
         peso = e.get("peso", "-")
-        cal = e.get("calorias", "-")
-        prot = e.get("proteina", "-")
+        cal = e.get("total_calorias", e.get("calorias", "-"))
+        prot = e.get("total_proteina", e.get("proteina", "-"))
         pasos = e.get("pasos", "-")
         elip = e.get("eliptica_min", "-")
         print(f"{f:<14} {str(peso):<8} {str(cal):<8} {str(prot):<6} {str(pasos):<8} {str(elip):<6}")
@@ -190,12 +283,19 @@ def resumen():
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("Uso: progress_tracker.py --log <datos> | --ultimos [dias] | --resumen")
+        print("Uso: progress_tracker.py --log <datos> | --hoy | --comida <nombre> | --ultimos [dias] | --resumen")
         sys.exit(1)
 
     cmd = sys.argv[1]
     if cmd in ("--log", "-l"):
         procesar(sys.argv[2:])
+    elif cmd in ("--hoy", "--today", "-t"):
+        mostrar_hoy()
+    elif cmd in ("--comida", "--meal", "-m"):
+        if len(sys.argv) > 2:
+            mostrar_comida(" ".join(sys.argv[2:]))
+        else:
+            print("Especifica el nombre de la comida (ej: --comida Desayuno)")
     elif cmd in ("--ultimos", "-u"):
         dias = int(sys.argv[2]) if len(sys.argv) > 2 else 7
         mostrar_ultimos(dias)

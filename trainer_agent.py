@@ -41,9 +41,14 @@ HERRAMIENTAS (usalas cuando corresponda):
 - query_fitness_knowledge: busca tecnicas de ejecucion de ejercicios en la base de conocimiento.
 - get_nutrition_data: obtiene informacion nutricional de alimentos via OpenFoodFacts.
 - register_progress: guarda automaticamente cuando mencione peso, calorias, proteina, pasos o eliptica en lenguaje natural. PASA EL TEXTO TAL CUAL.
-- query_progress: consulta historial de progreso, ultimo peso, resumen o ultimos dias.
+- log_meal: registra una comida individual (desayuno, comida, cena, merienda) con sus calorias y proteinas. El sistema acumula el total diario automaticamente.
+- query_progress: consulta historial de progreso, ultimo peso, resumen, ultimos dias, el dia de hoy con todas las comidas, o una comida en concreto.
 
-IMPORTANTE: Cuando el usuario mencione datos de progreso (peso, calorias, proteinas, pasos, eliptica), USA register_progress automaticamente. Cuando pregunte por su historial, USA query_progress. Responde SIEMPRE en espanol."""
+IMPORTANTE: 
+- Cuando el usuario mencione una comida especifica (desayuno, comida, cena, merienda) con sus calorias, USA log_meal en vez de register_progress.
+- Cuando el usuario mencione datos de progreso generales (peso, calorias totales del dia, proteinas totales, pasos, eliptica), USA register_progress.
+- Cuando pregunte por su historial, total de calorias del dia, o comidas, USA query_progress con tipo='hoy' para el desglose del dia.
+- Responde SIEMPRE en espanol."""
 
 TOOLS = [
     {
@@ -100,19 +105,53 @@ TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "log_meal",
+            "description": "Registra una comida individual (desayuno, comida, cena, merienda, etc.) con sus calorias y proteinas. El sistema acumula automaticamente el total diario. Usa esta funcion cuando el usuario diga que ha comido algo con sus calorias.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "nombre": {
+                        "type": "string",
+                        "enum": ["Desayuno", "Comida", "Cena", "Merienda", "Snack", "Postre"],
+                        "description": "Nombre de la comida"
+                    },
+                    "calorias": {
+                        "type": "integer",
+                        "description": "Calorias de la comida"
+                    },
+                    "proteina": {
+                        "type": "integer",
+                        "description": "Proteinas en gramos (opcional)"
+                    },
+                    "descripcion": {
+                        "type": "string",
+                        "description": "Descripcion breve de lo que comio (ej: 'pollo con arroz')"
+                    }
+                },
+                "required": ["nombre", "calorias"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "query_progress",
-            "description": "Consulta el historial de progreso del usuario: ultimo peso, resumen del plan, ultimos N dias. Usa esta funcion cuando el usuario pregunte por su peso registrado, evolucion, o estadisticas.",
+            "description": "Consulta el historial de progreso del usuario: ultimo peso, resumen del plan, ultimos N dias, hoy (comidas y totales), o una comida en concreto.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "tipo": {
                         "type": "string",
-                        "enum": ["ultimo", "resumen", "ultimos"],
-                        "description": "Tipo de consulta: 'ultimo' para ultimo registro, 'resumen' para vision general, 'ultimos' para ultimos N dias"
+                        "enum": ["ultimo", "resumen", "ultimos", "hoy", "comida"],
+                        "description": "Tipo de consulta: 'ultimo' ultimo peso, 'resumen' vision general, 'ultimos' ultimos N dias, 'hoy' comidas y totales de hoy, 'comida' detalle de una comida concreta"
                     },
                     "dias": {
                         "type": "integer",
                         "description": "Numero de dias a mostrar (solo si tipo='ultimos')"
+                    },
+                    "nombre_comida": {
+                        "type": "string",
+                        "description": "Nombre de la comida a consultar (solo si tipo='comida', ej: 'Desayuno')"
                     }
                 },
                 "required": ["tipo"]
@@ -141,6 +180,22 @@ def ejecutar_tool(name, args):
             return "Error: alimento no especificado"
         result = get_nutrition_data(food.strip())
         return json.dumps(result, ensure_ascii=False)
+
+    elif name == "log_meal":
+        nombre = args.get("nombre", "")
+        calorias = args.get("calorias", 0)
+        proteina = args.get("proteina", 0)
+        descripcion = args.get("descripcion", "")
+        if not nombre:
+            return "Error: nombre de comida no especificado"
+        import subprocess
+        script = os.path.join(os.path.dirname(__file__), "progress_tracker.py")
+        cmd = [sys.executable, script, "--log",
+               f"comida={nombre}", f"calorias={calorias}",
+               f"proteina={proteina}", f"descripcion={descripcion}"]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        output = result.stdout.strip() or result.stderr.strip()
+        return output if output else f"Comida '{nombre}' registrada correctamente"
 
     elif name == "register_progress":
         datos = args.get("datos", "")
@@ -189,7 +244,14 @@ def ejecutar_tool(name, args):
         tipo = args.get("tipo", "ultimo")
         import subprocess
         script = os.path.join(os.path.dirname(__file__), "progress_tracker.py")
-        if tipo == "resumen":
+        if tipo == "hoy":
+            cmd = [sys.executable, script, "--hoy"]
+        elif tipo == "comida":
+            nombre = args.get("nombre_comida", "")
+            if not nombre:
+                return "Error: especifica nombre_comida para tipo=comida"
+            cmd = [sys.executable, script, "--comida", nombre]
+        elif tipo == "resumen":
             cmd = [sys.executable, script, "--resumen"]
         elif tipo == "ultimos":
             dias = args.get("dias", 7)
