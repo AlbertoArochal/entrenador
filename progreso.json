@@ -9,11 +9,11 @@
   "progreso": {
     "2026-06-20": {
       "notas": "test",
-      "peso": 80.0,
+      "peso": 78.5,
       "calorias": 380,
       "proteina": 160,
-      "pasos": 11000,
-      "eliptica_min": 40,
+      "pasos": 10000,
+      "eliptica_min": 35,
       "comidas": [
         {
           "timestamp": "15:56",
