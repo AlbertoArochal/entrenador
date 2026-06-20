@@ -490,7 +490,7 @@ if __name__ == "__main__":
             print("  ❌ Contraseña incorrecta. Intenta de nuevo.\n")
             USUARIO = None
 
-        elif respuesta.startswith('{"status":"ok"'):
+        elif '"status": "ok"' in respuesta:
             info = json.loads(respuesta)
             cliente = info.get("cliente", {})
             print(f"\n✅ ¡Bienvenido de vuelta, {USUARIO}! 💪\n")
